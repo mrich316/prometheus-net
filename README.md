@@ -344,6 +344,40 @@ var metricServer = new MetricPusher(endpoint: "https://pushgateway.example.org:9
 metricServer.Start();
 ```
 
+On advanced scenarios, like a secured [Pushgateway](https://prometheus.io/docs/practices/pushing/) server, you have total control
+on the HttpClient used by using your IHttpClientFactory ([Microsoft Docs](https://docs.microsoft.com/en-us/dotnet/standard/microservices-architecture/implement-resilient-applications/use-httpclientfactory-to-implement-resilient-http-requests):
+
+```csharp
+var metricServer = new MetricPusher(endpoint: "https://pushgateway.example.org:9091/metrics", job: "some_job", httpClientFactory: new BasicAuthHttpClientFactory("user", "password"));
+metricServer.Start();
+
+using System;
+using System.Net.Http;
+using System.Net.Http.Headers;
+using System.Text;
+
+namespace YourProject
+{
+	// Adds Basic Authentication Header to the HttpClient of MetricPusher.
+    public class BasicAuthHttpClientFactory : IHttpClientFactory
+    {
+        private readonly HttpClient _client = new HttpClient();
+
+        public BasicAuthHttpClientFactory(string user, string password)
+        {
+            var encoding = Encoding.GetEncoding("iso-8859-1");
+            var headerValue = Convert.ToBase64String(encoding.GetBytes($"{user}:{password}"));
+            _client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Basic", headerValue);
+        }
+
+        public HttpClient CreateClient()
+        {
+            return _client;
+        }
+    }
+}
+```
+
 # Publishing via standalone HTTP handler
 
 As a fallback option for scenarios where Kestrel or ASP.NET Core hosting is unsuitable, an `HttpListener` based metrics server implementation is also available.

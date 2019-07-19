@@ -14,10 +14,11 @@ namespace Prometheus
     /// </summary>
     public class MetricPusher : MetricHandler
     {
+        private readonly IHttpClientFactory _httpClientFactory;
         private readonly TimeSpan _pushInterval;
         private readonly Uri _targetUrl;
 
-        public MetricPusher(string endpoint, string job, string instance = null, long intervalMilliseconds = 1000, IEnumerable<Tuple<string, string>> additionalLabels = null, CollectorRegistry registry = null) : base(registry)
+        public MetricPusher(string endpoint, string job, string instance = null, long intervalMilliseconds = 1000, IEnumerable<Tuple<string, string>> additionalLabels = null, CollectorRegistry registry = null, IHttpClientFactory httpClientFactory = null) : base(registry)
         {
             if (string.IsNullOrEmpty(endpoint))
             {
@@ -31,6 +32,8 @@ namespace Prometheus
             {
                 throw new ArgumentException("Interval must be greater than zero", "intervalMilliseconds");
             }
+
+            _httpClientFactory = httpClientFactory ?? new SingletonHttpClientFactory();
 
             StringBuilder sb = new StringBuilder(string.Format("{0}/job/{1}", endpoint.TrimEnd('/'), job));
             if (!string.IsNullOrEmpty(instance))
@@ -57,8 +60,6 @@ namespace Prometheus
             _pushInterval = TimeSpan.FromMilliseconds(intervalMilliseconds);
         }
 
-        private static readonly HttpClient _httpClient = new HttpClient();
-
         protected override Task StartServer(CancellationToken cancel)
         {
             // Kick off the actual processing to a new thread and return a Task for the processing thread.
@@ -75,13 +76,14 @@ namespace Prometheus
                         using (var stream = new MemoryStream())
                         {
                             var serializer = new TextSerializer(stream);
+                            var httpClient = _httpClientFactory.CreateClient();
 
                             // Do not pass CT because we only want to cancel after pushing, so a flush is always performed.
                             await _registry.CollectAndSerializeAsync(serializer, default);
 
                             stream.Position = 0;
                             // StreamContent takes ownership of the stream.
-                            var response = await _httpClient.PostAsync(_targetUrl, new StreamContent(stream));
+                            var response = await httpClient.PostAsync(_targetUrl, new StreamContent(stream));
 
                             // If anything goes wrong, we want to get at least an entry in the trace log.
                             response.EnsureSuccessStatusCode();
